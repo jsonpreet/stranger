@@ -1,0 +1,19 @@
+# Binaries
+bin/
+dist/
+out/
+build/
+node_modules/
+
+# Go
+go.sum
+vendor/
+
+# OS
+.DS_Store
+.idea/
+.vscode/
+
+# Env
+.env
+.env.local
