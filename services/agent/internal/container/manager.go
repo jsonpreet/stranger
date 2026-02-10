@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
@@ -22,11 +21,15 @@ func NewManager(docker *client.Client) *Manager {
 
 // Deploy stops old container, starts new one
 func (m *Manager) Deploy(ctx context.Context, plan types.DeployPlan, imageTag string) error {
-	containerName := fmt.Sprintf("app-%s", plan.ID)
+	// MVP: Use ProjectID to ensure only one version runs at a time.
+	// This simplifies log streaming (just tail matches app-<projectID>)
+	containerName := fmt.Sprintf("app-%s", plan.ProjectID)
 
 	// 1. Check/Stop existing
 	slog.Info("Checking for existing container", "name", containerName)
-	containers, err := m.docker.ContainerList(ctx, types.ContainerListOptions{All: true})
+	// 1. Check/Stop existing
+	slog.Info("Checking for existing container", "name", containerName)
+	containers, err := m.docker.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return err
 	}
@@ -37,7 +40,7 @@ func (m *Manager) Deploy(ctx context.Context, plan types.DeployPlan, imageTag st
 			if name == "/"+containerName {
 				slog.Info("Removing old container", "id", c.ID)
 				// Force remove (kills if running)
-				err := m.docker.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true})
+				err := m.docker.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true})
 				if err != nil {
 					return fmt.Errorf("failed to remove old container: %w", err)
 				}
@@ -56,6 +59,10 @@ func (m *Manager) Deploy(ctx context.Context, plan types.DeployPlan, imageTag st
 		Env:   flattenEnv(plan.Runtime.Env),
 		ExposedPorts: nat.PortSet{
 			containerPort: struct{}{},
+		},
+		Labels: map[string]string{
+			"com.stranger.project": plan.ProjectID,
+			"com.stranger.plan":    plan.ID,
 		},
 	}
 
@@ -77,7 +84,7 @@ func (m *Manager) Deploy(ctx context.Context, plan types.DeployPlan, imageTag st
 	}
 
 	// 3. Start
-	if err := m.docker.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if err := m.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 

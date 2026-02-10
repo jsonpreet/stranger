@@ -1,0 +1,10 @@
+
+{
+	admin off
+}
+
+
+test-project.localhost {
+	reverse_proxy localhost:32768
+}
+

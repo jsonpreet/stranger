@@ -1,0 +1,12 @@
+
+> stranger-dashboard@0.1.0 dev
+> next dev --port 3001
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://172.20.10.2:3001
+
+✓ Starting...
+✓ Ready in 647ms
+ GET / 200 in 312ms (compile: 223ms, render: 88ms)
+ GET / 200 in 36ms (compile: 4ms, render: 32ms)
