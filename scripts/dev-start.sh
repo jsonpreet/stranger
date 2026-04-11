@@ -14,7 +14,7 @@ CONTROL_PLANE_DB_BASE="$CONTROL_PLANE_DIR/stranger.db"
 DASHBOARD_STATE_FILE="$DEV_DIR/dashboard-state.json"
 CONTROL_PLANE_PORT="8080"
 AGENT_PORT="3000"
-DASHBOARD_PORT="3001"
+DASHBOARD_PORT="3301"
 RESOLVED_DOCKER_HOST=""
 
 mkdir -p "$DEV_DIR" "$LOG_DIR"
@@ -31,6 +31,19 @@ require_commands() {
   done
 }
 
+# Install nixpacks once globally — needed to build PHP/Python/Ruby apps that
+# have no Dockerfile. Uses the official install script (curl | bash).
+install_nixpacks_if_missing() {
+  if command -v nixpacks >/dev/null 2>&1; then
+    return
+  fi
+  echo "Installing nixpacks (one-time, required for PHP/Python app builds)..."
+  if ! curl -sSfL https://nixpacks.com/install.sh | bash; then
+    echo "Warning: nixpacks install failed. PHP/Python apps may not build correctly."
+    echo "  Manual install: https://nixpacks.com/docs/install"
+  fi
+}
+
 require_docker_daemon() {
   if [[ "${STRANGER_SKIP_DOCKER_CHECK:-}" == "1" ]]; then
     return
@@ -43,21 +56,11 @@ require_docker_daemon() {
     return
   fi
 
-  echo "Docker daemon is not reachable."
-  echo "Start Docker first, then run: ./dev-start.sh restart"
-  echo
-  echo "macOS:"
-  echo "  - Open Docker Desktop and wait for 'Engine running'"
-  echo
-  echo "Linux:"
-  echo "  - sudo systemctl start docker"
-  echo "  - or start colima: colima start"
-  echo
-  echo "Tip:"
-  echo "  - verify contexts: docker context ls"
-  echo
-  echo "UI-only mode (skip Docker preflight):"
-  echo "  - STRANGER_SKIP_DOCKER_CHECK=1 ./dev-start.sh start"
+  echo "Docker daemon is not reachable (or slow to respond)."
+  echo "1. Start/Restart Docker Desktop and wait for 'Engine running'."
+  echo "2. If Docker is running, try: ./dev-start.sh restart"
+  echo "3. To bypass this check for UI-only development, run:"
+  echo "   STRANGER_SKIP_DOCKER_CHECK=1 ./dev-start.sh start"
   exit 1
 }
 
@@ -124,7 +127,7 @@ STRANGER_AGENT_TOKEN="$agent_token"
 STRANGER_SECRETS_KEY="$secrets_key"
 STRANGER_AGENT_URL="http://localhost:3000"
 STRANGER_CONTROL_PLANE_URL="http://localhost:8080"
-STRANGER_DASHBOARD_URL="http://localhost:3001"
+STRANGER_DASHBOARD_URL="http://localhost:3301"
 STRANGER_DASHBOARD_API_TOKEN="$api_token"
 EOF
 }
@@ -301,6 +304,7 @@ start_all() {
   require_commands
   load_env
   require_docker_daemon
+  install_nixpacks_if_missing
   load_pids
 
   start_control_plane

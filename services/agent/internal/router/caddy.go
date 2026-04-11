@@ -29,22 +29,23 @@ func NewCaddyRouter() *CaddyRouter {
 	}
 }
 
-// Simple Caddyfile template
+// Simple Caddyfile template.
+// CaddyDomain may include scheme prefix (http://foo.localhost) to disable auto-HTTPS for dev domains.
 const caddyTemplate = `
 {
-	admin off
+	admin localhost:2019
 }
 
 {{range .Routes}}
-{{.Domain}} {
+{{.CaddyDomain}} {
 	reverse_proxy localhost:{{.Port}}
 }
 {{end}}
 `
 
 type Route struct {
-	Domain string
-	Port   string
+	CaddyDomain string // domain as written in Caddyfile (may include http:// for .localhost)
+	Port        string
 }
 
 type RouterConfig struct {
@@ -83,15 +84,63 @@ func (r *CaddyRouter) UpdateRoute(domain string, targetPort string) error {
 	return r.Reload()
 }
 
+// DeleteRoute removes a domain from the Caddy config and reloads.
+func (r *CaddyRouter) DeleteRoute(domain string) error {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	routes, err := r.loadRoutes()
+	if err != nil {
+		return err
+	}
+	delete(routes, domain)
+
+	if err := r.saveRoutes(routes); err != nil {
+		return err
+	}
+	if err := r.writeConfig(routes); err != nil {
+		return err
+	}
+	return r.Reload()
+}
+
 func (r *CaddyRouter) Reload() error {
 	slog.Info("Reloading Caddy...")
 
-	cmd := exec.Command("caddy", "reload", "--config", r.ConfigPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		slog.Error("Caddy reload failed", "output", string(output))
-		return fmt.Errorf("caddy reload failed: %w", err)
+	validateCmd := exec.Command("caddy", "validate", "--config", r.ConfigPath)
+	if output, err := validateCmd.CombinedOutput(); err != nil {
+		slog.Error("Caddy config validation failed", "output", string(output))
+		return fmt.Errorf("caddy config invalid: %s", strings.TrimSpace(string(output)))
+	}
+
+	reloadCmd := exec.Command("caddy", "reload", "--config", r.ConfigPath)
+	if output, err := reloadCmd.CombinedOutput(); err != nil {
+		outputText := string(output)
+		slog.Error("Caddy reload failed", "output", outputText)
+
+		if shouldStartCaddy(outputText) {
+			slog.Info("Caddy not running; starting new instance")
+			startCmd := exec.Command("caddy", "start", "--config", r.ConfigPath)
+			startOutput, startErr := startCmd.CombinedOutput()
+			if startErr != nil {
+				slog.Error("Caddy start failed", "output", string(startOutput))
+				return fmt.Errorf("caddy start failed: %s", strings.TrimSpace(string(startOutput)))
+			}
+			return nil
+		}
+
+		return fmt.Errorf("caddy reload failed: %s", strings.TrimSpace(outputText))
 	}
 	return nil
+}
+
+func shouldStartCaddy(output string) bool {
+	normalized := strings.ToLower(output)
+	return strings.Contains(normalized, "connect: connection refused") ||
+		strings.Contains(normalized, "dial tcp") ||
+		strings.Contains(normalized, "no such file or directory")
 }
 
 func (r *CaddyRouter) loadRoutes() (map[string]string, error) {
@@ -133,9 +182,14 @@ func (r *CaddyRouter) writeConfig(routes map[string]string) error {
 
 	ordered := make([]Route, 0, len(domains))
 	for _, domain := range domains {
+		caddyDomain := domain
+		if strings.HasSuffix(domain, ".localhost") {
+			// Force HTTP for .localhost — Caddy would otherwise try HTTPS/ACME
+			caddyDomain = "http://" + domain
+		}
 		ordered = append(ordered, Route{
-			Domain: domain,
-			Port:   routes[domain],
+			CaddyDomain: caddyDomain,
+			Port:        routes[domain],
 		})
 	}
 

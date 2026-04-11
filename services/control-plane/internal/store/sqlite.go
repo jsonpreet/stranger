@@ -52,6 +52,7 @@ func initSchema(db *sql.DB) error {
 		template TEXT NOT NULL,
 		dockerfile_location TEXT NOT NULL DEFAULT 'Dockerfile',
 		base_directory TEXT NOT NULL DEFAULT '.',
+		port INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -66,6 +67,8 @@ func initSchema(db *sql.DB) error {
 		started_at DATETIME,
 		finished_at DATETIME,
 		attempt_count INTEGER NOT NULL DEFAULT 0,
+		image_tag TEXT,
+		prebuilt_image_tag TEXT,
 		FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 	);
 
@@ -104,21 +107,39 @@ func initSchema(db *sql.DB) error {
 		return err
 	}
 
+	if err := ensureDeployJobColumns(db); err != nil {
+		return err
+	}
+
+	// Stack config migration (idempotent)
+	_, _ = db.Exec(`ALTER TABLE projects ADD COLUMN stack_config TEXT NOT NULL DEFAULT ''`)
+
 	return nil
 }
 
 func (s *Store) CreateProject(p types.Project) error {
 	_, err := s.db.Exec(
-		`INSERT INTO projects (id, name, repo_url, template, dockerfile_location, base_directory, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (id, name, repo_url, template, dockerfile_location, base_directory, port, custom_domain, memory_limit, cpu_limit, notify_url, stack_config, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID,
 		p.Name,
 		p.RepoURL,
 		p.Template,
 		defaultString(p.DockerfileLocation, "Dockerfile"),
 		defaultString(p.BaseDirectory, "."),
+		p.Port,
+		p.CustomDomain,
+		p.MemoryLimit,
+		p.CPULimit,
+		p.NotifyURL,
+		p.StackConfig,
 		p.CreatedAt,
 	)
+	return err
+}
+
+func (s *Store) DeleteProject(id string) error {
+	_, err := s.db.Exec(`DELETE FROM projects WHERE id = ?`, id)
 	return err
 }
 
@@ -127,6 +148,12 @@ func (s *Store) ListProjects() ([]types.Project, error) {
 		`SELECT id, name, repo_url, template,
 		COALESCE(NULLIF(dockerfile_location, ''), 'Dockerfile'),
 		COALESCE(NULLIF(base_directory, ''), '.'),
+		COALESCE(port, 0),
+		COALESCE(custom_domain, ''),
+		COALESCE(memory_limit, ''),
+		COALESCE(cpu_limit, ''),
+		COALESCE(notify_url, ''),
+		COALESCE(stack_config, ''),
 		created_at
 		FROM projects
 		ORDER BY created_at DESC`,
@@ -146,6 +173,12 @@ func (s *Store) ListProjects() ([]types.Project, error) {
 			&p.Template,
 			&p.DockerfileLocation,
 			&p.BaseDirectory,
+			&p.Port,
+			&p.CustomDomain,
+			&p.MemoryLimit,
+			&p.CPULimit,
+			&p.NotifyURL,
+			&p.StackConfig,
 			&p.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -161,6 +194,12 @@ func (s *Store) GetProject(id string) (types.Project, error) {
 		`SELECT id, name, repo_url, template,
 		COALESCE(NULLIF(dockerfile_location, ''), 'Dockerfile'),
 		COALESCE(NULLIF(base_directory, ''), '.'),
+		COALESCE(port, 0),
+		COALESCE(custom_domain, ''),
+		COALESCE(memory_limit, ''),
+		COALESCE(cpu_limit, ''),
+		COALESCE(notify_url, ''),
+		COALESCE(stack_config, ''),
 		created_at
 		FROM projects
 		WHERE id = ?`,
@@ -172,9 +211,27 @@ func (s *Store) GetProject(id string) (types.Project, error) {
 		&project.Template,
 		&project.DockerfileLocation,
 		&project.BaseDirectory,
+		&project.Port,
+		&project.CustomDomain,
+		&project.MemoryLimit,
+		&project.CPULimit,
+		&project.NotifyURL,
+		&project.StackConfig,
 		&project.CreatedAt,
 	)
 	return project, err
+}
+
+func (s *Store) UpdateProjectSettings(id, customDomain, memoryLimit, cpuLimit, notifyURL string) error {
+	_, err := s.db.Exec(
+		`UPDATE projects SET custom_domain = ?, memory_limit = ?, cpu_limit = ?, notify_url = ? WHERE id = ?`,
+		customDomain,
+		memoryLimit,
+		cpuLimit,
+		notifyURL,
+		id,
+	)
+	return err
 }
 
 func (s *Store) CreateDeployJob(job types.DeployJob) error {
@@ -187,8 +244,8 @@ func (s *Store) CreateDeployJob(job types.DeployJob) error {
 
 	_, err := s.db.Exec(
 		`INSERT INTO deploy_jobs
-		(id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count, image_tag, prebuilt_image_tag)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID,
 		job.ProjectID,
 		job.Status,
@@ -199,6 +256,8 @@ func (s *Store) CreateDeployJob(job types.DeployJob) error {
 		job.StartedAt,
 		job.FinishedAt,
 		job.AttemptCount,
+		nullIfEmpty(job.ImageTag),
+		nullIfEmpty(job.PrebuiltImageTag),
 	)
 	return err
 }
@@ -211,7 +270,7 @@ func (s *Store) ClaimNextDeployJob() (*types.DeployJob, error) {
 	defer tx.Rollback()
 
 	row := tx.QueryRow(`
-		SELECT id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count
+		SELECT id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count, image_tag, prebuilt_image_tag
 		FROM deploy_jobs
 		WHERE status = ?
 		ORDER BY created_at ASC
@@ -327,7 +386,7 @@ func (s *Store) ListDeployJobs(projectID string, limit int) ([]types.DeployJob, 
 	}
 
 	query := `
-		SELECT id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count
+		SELECT id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count, image_tag, prebuilt_image_tag
 		FROM deploy_jobs
 	`
 	args := []any{}
@@ -357,7 +416,7 @@ func (s *Store) ListDeployJobs(projectID string, limit int) ([]types.DeployJob, 
 
 func (s *Store) GetDeployJob(id string) (types.DeployJob, error) {
 	row := s.db.QueryRow(`
-		SELECT id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count
+		SELECT id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count, image_tag, prebuilt_image_tag
 		FROM deploy_jobs
 		WHERE id = ?
 	`, id)
@@ -526,6 +585,8 @@ func scanDeployJob(scanner interface{ Scan(dest ...any) error }) (types.DeployJo
 	var errorMessage sql.NullString
 	var startedAt sql.NullTime
 	var finishedAt sql.NullTime
+	var imageTag sql.NullString
+	var prebuiltImageTag sql.NullString
 
 	err := scanner.Scan(
 		&job.ID,
@@ -538,6 +599,8 @@ func scanDeployJob(scanner interface{ Scan(dest ...any) error }) (types.DeployJo
 		&startedAt,
 		&finishedAt,
 		&job.AttemptCount,
+		&imageTag,
+		&prebuiltImageTag,
 	)
 	if err != nil {
 		return types.DeployJob{}, err
@@ -556,6 +619,12 @@ func scanDeployJob(scanner interface{ Scan(dest ...any) error }) (types.DeployJo
 	if finishedAt.Valid {
 		finishedAtValue := finishedAt.Time
 		job.FinishedAt = &finishedAtValue
+	}
+	if imageTag.Valid {
+		job.ImageTag = imageTag.String
+	}
+	if prebuiltImageTag.Valid {
+		job.PrebuiltImageTag = prebuiltImageTag.String
 	}
 
 	return job, nil
@@ -593,6 +662,36 @@ func ensureProjectColumns(db *sql.DB) error {
 		}
 	}
 
+	if !columns["custom_domain"] {
+		if _, err := db.Exec(`ALTER TABLE projects ADD COLUMN custom_domain TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add custom_domain column: %w", err)
+		}
+	}
+
+	if !columns["memory_limit"] {
+		if _, err := db.Exec(`ALTER TABLE projects ADD COLUMN memory_limit TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add memory_limit column: %w", err)
+		}
+	}
+
+	if !columns["cpu_limit"] {
+		if _, err := db.Exec(`ALTER TABLE projects ADD COLUMN cpu_limit TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add cpu_limit column: %w", err)
+		}
+	}
+
+	if !columns["notify_url"] {
+		if _, err := db.Exec(`ALTER TABLE projects ADD COLUMN notify_url TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add notify_url column: %w", err)
+		}
+	}
+
+	if !columns["port"] {
+		if _, err := db.Exec(`ALTER TABLE projects ADD COLUMN port INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("add port column: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -622,4 +721,121 @@ func projectColumns(db *sql.DB) (map[string]bool, error) {
 		return nil, err
 	}
 	return columns, nil
+}
+
+func tableColumns(db *sql.DB, tableName string) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + tableName + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &primaryKey); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
+}
+
+func ensureDeployJobColumns(db *sql.DB) error {
+	columns, err := tableColumns(db, "deploy_jobs")
+	if err != nil {
+		return err
+	}
+
+	if !columns["image_tag"] {
+		if _, err := db.Exec(`ALTER TABLE deploy_jobs ADD COLUMN image_tag TEXT`); err != nil {
+			return fmt.Errorf("add image_tag column: %w", err)
+		}
+	}
+
+	if !columns["prebuilt_image_tag"] {
+		if _, err := db.Exec(`ALTER TABLE deploy_jobs ADD COLUMN prebuilt_image_tag TEXT`); err != nil {
+			return fmt.Errorf("add prebuilt_image_tag column: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) UpdateDeployJobImageTag(jobID, imageTag string) error {
+	_, err := s.db.Exec(
+		`UPDATE deploy_jobs SET image_tag = ?, updated_at = ? WHERE id = ?`,
+		imageTag,
+		time.Now().UTC(),
+		jobID,
+	)
+	return err
+}
+
+func (s *Store) GetLastTwoSuccessfulDeployJobs(projectID string) ([]types.DeployJob, error) {
+	rows, err := s.db.Query(`
+		SELECT id, project_id, status, plan_id, error, created_at, updated_at, started_at, finished_at, attempt_count, image_tag, prebuilt_image_tag
+		FROM deploy_jobs
+		WHERE project_id = ? AND status = ?
+		ORDER BY created_at DESC
+		LIMIT 2
+	`, projectID, types.DeployJobStatusSucceeded)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []types.DeployJob
+	for rows.Next() {
+		job, err := scanDeployJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}
+
+func (s *Store) MarkStaleJobsFailed(staleAfter time.Duration) (int64, error) {
+	threshold := time.Now().UTC().Add(-staleAfter)
+	now := time.Now().UTC()
+	res, err := s.db.Exec(`
+		UPDATE deploy_jobs
+		SET status = 'failed', error = 'stale: exceeded timeout', updated_at = ?, finished_at = ?
+		WHERE status IN ('dispatching','dispatched','running') AND updated_at < ?
+	`, now, now, threshold)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (s *Store) PurgeOldTerminalJobs(olderThan time.Duration) (int64, error) {
+	threshold := time.Now().UTC().Add(-olderThan)
+	res, err := s.db.Exec(`
+		DELETE FROM deploy_jobs
+		WHERE status IN ('succeeded','failed') AND created_at < ?
+	`, threshold)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (s *Store) PurgeOldAuditEvents(olderThan time.Duration) (int64, error) {
+	threshold := time.Now().UTC().Add(-olderThan)
+	res, err := s.db.Exec(`
+		DELETE FROM audit_events WHERE created_at < ?
+	`, threshold)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

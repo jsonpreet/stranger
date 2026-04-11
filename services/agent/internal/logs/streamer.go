@@ -6,6 +6,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 type Streamer struct {
@@ -31,16 +32,8 @@ func (s *Streamer) Stream(ctx context.Context, containerID string, w io.Writer) 
 	}
 	defer out.Close()
 
-	// Docker logs return a specific format with headers.
-	// For MVP, we can just copy raw bytes, but ideally we parse stdcopy.
-	// 'stdcopy' demultiplexes stdout/stderr, but for a simple web stream, 
-	// raw copy might yield garbage headers. 
-	// Let's use stdcopy if we want clean text, or just copy if we don't care about headers.
-	// Actually, for a web stream, we want to just pipe it. 
-	// Using io.Copy directly will include the 8-byte header for each frame.
-	// The frontend/control-plane might need to strip it, OR we strip it here.
-	// To keep it simple for now, let's just copy.
-	
-	_, err = io.Copy(w, out)
+	// Use stdcopy to demultiplex Docker's multiplexed stdout/stderr stream.
+	// io.Copy would include raw 8-byte frame headers causing garbage output.
+	_, err = stdcopy.StdCopy(w, w, out)
 	return err
 }

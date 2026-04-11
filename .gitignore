@@ -17,3 +17,6 @@ vendor/
 # Env
 .env
 .env.local
+coolify-4.x/
+coolify-examples-4.x/
+.dev/

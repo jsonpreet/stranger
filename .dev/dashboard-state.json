@@ -1,23 +1,23 @@
 {
   "version": 1,
-  "created_at": "2026-02-10T09:19:23.011Z",
-  "updated_at": "2026-02-10T09:19:38.279Z",
+  "created_at": "2026-04-10T07:31:11.290Z",
+  "updated_at": "2026-04-10T07:31:23.676Z",
   "accounts": [
     {
-      "id": "user_f509b8f3685c5467",
+      "id": "user_f0fff48ce851f087",
       "email": "harpreet.freelance@gmail.com",
-      "password_hash": "55f2df0aab79da6e43474a1d95bcb42b9909a99ca9dd23c94b1c64e2bb8e360a",
-      "salt": "c842f81e104528c3bb51a6c433b0ee66",
-      "created_at": "2026-02-10T09:19:34.864Z"
+      "password_hash": "c52a426413fee16c148f798e917982f344c87c36b355b70e6ce80fd496f7fd07",
+      "salt": "66f6129b02dbb88f58868b894e895a3b",
+      "created_at": "2026-04-10T07:31:22.285Z"
     }
   ],
   "servers": [
     {
-      "id": "server_53f3b005e0933ecb",
+      "id": "server_a82598efa667f12c",
       "type": "localhost",
       "name": "Localhost",
       "host": "localhost",
-      "created_at": "2026-02-10T09:19:38.279Z"
+      "created_at": "2026-04-10T07:31:23.676Z"
     }
   ],
   "installed_apps": []

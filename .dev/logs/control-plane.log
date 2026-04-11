@@ -1,2 +1,5 @@
-{"time":"2026-02-10T19:53:53.600679+05:30","level":"INFO","msg":"Deploy dispatcher started","poll_interval":"500ms"}
-{"time":"2026-02-10T19:53:53.601022+05:30","level":"INFO","msg":"Control Plane starting","addr":":8080"}
+{"time":"2026-04-11T12:09:42.032229+05:30","level":"INFO","msg":"Mailer: SMTP not configured — welcome emails will be skipped"}
+{"time":"2026-04-11T12:09:42.032415+05:30","level":"INFO","msg":"Stale job watchdog started"}
+{"time":"2026-04-11T12:09:42.032406+05:30","level":"INFO","msg":"Deploy dispatcher started","poll_interval":"500ms"}
+{"time":"2026-04-11T12:09:42.032658+05:30","level":"INFO","msg":"Control Plane starting","addr":":8080"}
+{"time":"2026-04-11T12:10:57.715714+05:30","level":"INFO","msg":"Deploy dispatcher stopping"}

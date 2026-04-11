@@ -36,7 +36,7 @@ cd /Users/harpreet/Github/stranger
 This starts:
 - control-plane (`:8080`)
 - agent (`:3000`)
-- dashboard (`:3001`)
+- dashboard (`:3301`)
 - preflight checks (including Docker daemon reachability)
 
 Useful commands:
@@ -93,7 +93,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3001`.
+Open `http://localhost:3301`.
 
 First-run UX now:
 1. Create admin account (`/auth/setup`)

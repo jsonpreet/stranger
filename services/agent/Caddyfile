@@ -1,10 +1,10 @@
 
 {
-	admin off
+	admin localhost:2019
 }
 
 
-test-project.localhost {
-	reverse_proxy localhost:32768
+http://coolify-examples-mnty3cha.localhost {
+	reverse_proxy localhost:55000
 }
 
