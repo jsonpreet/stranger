@@ -808,7 +808,7 @@ func (s *Store) MarkStaleJobsFailed(staleAfter time.Duration) (int64, error) {
 	now := time.Now().UTC()
 	res, err := s.db.Exec(`
 		UPDATE deploy_jobs
-		SET status = 'failed', error = 'stale: exceeded timeout', updated_at = ?, finished_at = ?
+		SET status = 'failed', error = 'Deploy timed out before the agent reported a final result.', updated_at = ?, finished_at = ?
 		WHERE status IN ('dispatching','dispatched','running') AND updated_at < ?
 	`, now, now, threshold)
 	if err != nil {

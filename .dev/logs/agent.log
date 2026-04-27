@@ -1,3 +1,3 @@
-{"time":"2026-04-11T12:09:41.253093+05:30","level":"INFO","msg":"Agent listening","addr":":3000"}
-{"time":"2026-04-11T12:10:56.636125+05:30","level":"INFO","msg":"Agent shutting down, waiting for in-flight deploys..."}
-{"time":"2026-04-11T12:10:56.636197+05:30","level":"INFO","msg":"In-flight deploys completed"}
+{"time":"2026-04-16T00:54:16.466962+05:30","level":"INFO","msg":"Agent listening","addr":":3000"}
+{"time":"2026-04-16T02:42:04.107076+05:30","level":"INFO","msg":"Agent shutting down, waiting for in-flight deploys..."}
+{"time":"2026-04-16T02:42:04.108504+05:30","level":"INFO","msg":"In-flight deploys completed"}
